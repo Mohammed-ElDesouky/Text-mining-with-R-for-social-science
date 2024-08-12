@@ -51,6 +51,7 @@ library(quanteda.textstats)
 #The save_directory will be the location of where outputs are stored
 project_dir <- here()
 data_dir <- here('01_Data/letters')
+resources_dir <- here('01_Data/resources')
 save_dir <- here('03_Outputs/')
 
 
@@ -209,82 +210,43 @@ text <- read.csv(paste(save_dir,'text_extracts.csv', sep = "/"), header = T, sep
 
 #text to corpus
 sotu_corpus <- corpus(text$text,
-                      docnames = text$doc_id,)
-
-summary(corp_raw)
+                      docnames = text$doc_id)
 
 #corpus to sentences
-corpus_sentences <- corpus_reshape(corp_raw, to = "sentences")
-ndoc(corpus_sentences)
+corpus_sentences <- corpus_reshape(sotu_corpus, to = "sentences")
 
 #applying transformation
-corp <- VCorpus(VectorSource(corpus_sentences))
 
+# Build a dictionary of lemmas
+lemma_data <- read.csv(paste(resources_dir,'baseform_en.tsv', sep = "/"), encoding = "UTF-8")
 
-addspace <- content_transformer(function(x, pattern) {
-  return(gsub(pattern, " ", x))
-})                            
+# read an extended stop word list
+stopwords_extended <- readLines(paste(resources_dir,'stopwords_en.txt', sep = "/"), encoding = "UTF-8")
 
-corpus_sentences <- tm_map(corp, addspace, "-")
+# Preprocessing of the corpus of sentences
+corpus_tokens <- corpus_sentences %>%
+  tokens(
+    remove_punct = TRUE,
+    remove_numbers = TRUE,
+    remove_symbols = TRUE
+  ) %>%
+  tokens_tolower() %>%
+  tokens_replace(lemma_data$inflected_form, lemma_data$lemma, valuetype = "fixed") %>%
+  tokens_remove(pattern = stopwords_extended, padding = T)
 
-#Custom function to remove special characters e.g "$"
-rmchr <- content_transformer(function(x, pattern) {
-  return(gsub(pattern, " ", x))
-})                            
+#create a document-term-matrix. Only word forms which occur at least 10 times should be taken into account. In addition, we are interested in words that the do occur -- note that the interest is not how frequent they occur but that they occur together. 
+minimumFrequency <- 10
 
-corp <- tm_map(corp, rmchr, "[[:punct:]]")
+# Create DTM, prune vocabulary and set binary values for presence/absence of types
+binDTM <- corpus_tokens %>%
+  tokens_remove("") %>%
+  dfm() %>%
+  dfm_trim(min_docfreq = minimumFrequency, max_docfreq = 1000000) %>%
+  dfm_weight("boolean")
 
-#Remove unnecessary elements from text [Note: respect the order]
-corp <- tm_map(corp, content_transformer(tolower))
-corp <- tm_map(corp, removePunctuation, ucp = TRUE)
-corp <- tm_map(corp, removeNumbers)
-corp <- tm_map(corp, removeWords, stopwords("english"))
-corp <- tm_map(corp, stripWhitespace) #Note: tm package doesn't treat spaces as characters,it's purely cosmetic transformation.
-
-#stemming transformation was commented out as not required for this specific task
-#corp <- tm_map(corp, stemDocument)   
-
-#checking if the transformation happened
-writeLines(head(strwrap(corp[[2]]), 200)) 
-
-corpus_tdm<- TermDocumentMatrix(corp)
-corpus_m<- as.matrix(corpus_tdm)
-
-dataframe<-data.frame(text=unlist(sapply(corp, `[`)), stringsAsFactors=F)
-
-corpus_m<- as.matrix(TermDocumentMatrix(corp))
-
-
-
-# calculate multi-word unit candidates
-corp_tm <- tm::VCorpus(tm::VectorSource(data_char_ukimmig2010))
-corp_quanteda <- corpus(corp)
-
-corp_new<- VCorpus(corp)
-df <- data.frame(text=sapply(corp, identity), 
-    stringsAsFactors=F)
-
-sotu_collocations <- textstat_collocations(corp_quanteda, min_count = 25)
-sotu_collocations <- sotu_collocations[1:250, ]
-corpus_tokens <- tokens_compound(corp, sotu_collocations)
-library(quanteda)
-
-??textstat_collocations
-
-lemma_data <- read.csv("resources/baseform_en.tsv", encoding = "UTF-8")
-
-
-
-# Term-document Matrix - setting up a matrix of words
-BigramTokenizer <-
-  function(x)
-    unlist(lapply(ngrams(words(x), 1:2), paste, collapse = " "), use.names = FALSE)
-
-```
+# Matrix multiplication for cooccurrence counts
+coocCounts <- t(binDTM) %*% binDTM
+as.matrix(coocCounts[202:205, 202:205])
 
 
 ```
-
-
-
-
