@@ -196,7 +196,9 @@ TF.df<- data.frame(as.table(as.matrix(Reports.tdm)))
 ```
 
 ``` {r coocuurance analysis}
-#re-importing the corpus without any transforamtion as we need it for sentence detection
+# here we will follow a different text processing pipeline to implement the method discussed by: Andreas Niekler, Gregor Wiedemann -- The sequence and logic of processing remains constant across prvious and this method, however, the syntax will differ slightly. 
+
+#re-importing the corpus without any transformation as we need it for sentence detection
 extracted_texts <- readtext(Reports, docvarsfrom = "filepaths", dvsep = "/")
 
 #save as csv for othe uses if needed
@@ -206,7 +208,9 @@ write.csv2(extracted_texts, paste(save_dir,'text_extracts.csv', sep = "/"), file
 text <- read.csv(paste(save_dir,'text_extracts.csv', sep = "/"), header = T, sep = ";", encoding = "UTF-8")     
 
 #text to corpus
-corp_raw <- corpus(text$text, docnames = text$doc_id)
+sotu_corpus <- corpus(text$text,
+                      docnames = text$doc_id,)
+
 summary(corp_raw)
 
 #corpus to sentences
@@ -242,6 +246,15 @@ corp <- tm_map(corp, stripWhitespace) #Note: tm package doesn't treat spaces as 
 
 #checking if the transformation happened
 writeLines(head(strwrap(corp[[2]]), 200)) 
+
+corpus_tdm<- TermDocumentMatrix(corp)
+corpus_m<- as.matrix(corpus_tdm)
+
+dataframe<-data.frame(text=unlist(sapply(corp, `[`)), stringsAsFactors=F)
+
+corpus_m<- as.matrix(TermDocumentMatrix(corp))
+
+
 
 # calculate multi-word unit candidates
 corp_tm <- tm::VCorpus(tm::VectorSource(data_char_ukimmig2010))
