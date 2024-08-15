@@ -42,6 +42,7 @@ library(here)
 library(quanteda)
 library(readtext)
 library(quanteda.textstats)
+library(igraph)
 
 #########################################
 # Initializing and setting up File paths #
@@ -244,9 +245,30 @@ binDTM <- corpus_tokens %>%
   dfm_trim(min_docfreq = minimumFrequency, max_docfreq = 1000000) %>%
   dfm_weight("boolean")
 
-# Matrix multiplication for cooccurrence counts
+# Matrix multiplication for co-occurrence counts
 coocCounts <- t(binDTM) %*% binDTM
 as.matrix(coocCounts[202:205, 202:205])
+
+# Read in the source code for the co-occurrence calculation to calculate Statistical significance -- in order to not only count joint occurrence we have to determine their significance this because only frequently co-occurring could result in poor indicator of meaning. 
+
+source("calculateCoocStatistics.R")
+
+# Definition of a parameter for the representation of the co-occurrences of a concept
+numberOfCoocs <- 15
+# Determination of the term of which co-competitors are to be measured.
+coocTerm <- "woman"
+
+coocs <- calculateCoocStatistics(coocTerm, binDTM, measure="LOGLIK")
+
+# Display the numberOfCoocs main terms
+print(coocs[1:numberOfCoocs])
+
+```
+
+``` {r visualizing cooccurances}
+
+
+
 
 
 ```
