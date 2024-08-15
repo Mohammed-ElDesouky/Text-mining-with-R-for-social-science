@@ -27,10 +27,12 @@ library(tm)
 library(SnowballC)
 library(kernlab)
 library(dplyr)
+library(tidyr)
 library(wordcloud)
 library(openNLP)
 library(rJava)
 library(NLP)
+library(openNLP)
 library(RWeka)
 library(ngram)
 library(stringr)
@@ -42,6 +44,9 @@ library(here)
 library(quanteda)
 library(readtext)
 library(quanteda.textstats)
+library(igraph)
+library(DataCombine)
+
 
 #########################################
 # Initializing and setting up File paths #
@@ -51,6 +56,7 @@ library(quanteda.textstats)
 #The save_directory will be the location of where outputs are stored
 project_dir <- here()
 data_dir <- here('01_Data/letters')
+resources_dir <- here('01_Data/resources')
 save_dir <- here('03_Outputs/')
 
 
@@ -196,7 +202,9 @@ TF.df<- data.frame(as.table(as.matrix(Reports.tdm)))
 ```
 
 ``` {r coocuurance analysis}
-#re-importing the corpus without any transforamtion as we need it for sentence detection
+# here we will follow a different text processing pipeline to implement the method discussed by: Andreas Niekler, Gregor Wiedemann -- The sequence and logic of processing remains constant across prvious and this method, however, the syntax will differ slightly. 
+
+#re-importing the corpus without any transformation as we need it for sentence detection
 extracted_texts <- readtext(Reports, docvarsfrom = "filepaths", dvsep = "/")
 
 #save as csv for othe uses if needed
@@ -206,72 +214,194 @@ write.csv2(extracted_texts, paste(save_dir,'text_extracts.csv', sep = "/"), file
 text <- read.csv(paste(save_dir,'text_extracts.csv', sep = "/"), header = T, sep = ";", encoding = "UTF-8")     
 
 #text to corpus
-corp_raw <- corpus(text$text, docnames = text$doc_id)
-summary(corp_raw)
+sotu_corpus <- corpus(text$text,
+                      docnames = text$doc_id)
 
 #corpus to sentences
-corpus_sentences <- corpus_reshape(corp_raw, to = "sentences")
-ndoc(corpus_sentences)
+corpus_sentences <- corpus_reshape(sotu_corpus, to = "sentences")
 
 #applying transformation
-corp <- VCorpus(VectorSource(corpus_sentences))
 
+# Build a dictionary of lemmas
+lemma_data <- read.csv(paste(resources_dir,'baseform_en.tsv', sep = "/"), encoding = "UTF-8")
 
-addspace <- content_transformer(function(x, pattern) {
-  return(gsub(pattern, " ", x))
-})                            
+# read an extended stop word list
+stopwords_extended <- readLines(paste(resources_dir,'stopwords_en.txt', sep = "/"), encoding = "UTF-8")
 
-corpus_sentences <- tm_map(corp, addspace, "-")
+# Preprocessing of the corpus of sentences
+corpus_tokens <- corpus_sentences %>%
+  tokens(
+    remove_punct = TRUE,
+    remove_numbers = TRUE,
+    remove_symbols = TRUE
+  ) %>%
+  tokens_tolower() %>%
+  tokens_replace(lemma_data$inflected_form, lemma_data$lemma, valuetype = "fixed") %>%
+  tokens_remove(pattern = stopwords_extended, padding = T)
 
-#Custom function to remove special characters e.g "$"
-rmchr <- content_transformer(function(x, pattern) {
-  return(gsub(pattern, " ", x))
-})                            
+#create a document-term-matrix. Only word forms which occur at least 10 times should be taken into account. In addition, we are interested in words that the do occur -- note that the interest is not how frequent they occur but that they occur together. 
+minimumFrequency <- 10
 
-corp <- tm_map(corp, rmchr, "[[:punct:]]")
+# Create DTM, prune vocabulary and set binary values for presence/absence of types
+binDTM <- corpus_tokens %>%
+  tokens_remove("") %>%
+  dfm() %>%
+  dfm_trim(min_docfreq = minimumFrequency, max_docfreq = 1000000) %>%
+  dfm_weight("boolean")
 
-#Remove unnecessary elements from text [Note: respect the order]
-corp <- tm_map(corp, content_transformer(tolower))
-corp <- tm_map(corp, removePunctuation, ucp = TRUE)
-corp <- tm_map(corp, removeNumbers)
-corp <- tm_map(corp, removeWords, stopwords("english"))
-corp <- tm_map(corp, stripWhitespace) #Note: tm package doesn't treat spaces as characters,it's purely cosmetic transformation.
+# Matrix multiplication for co-occurrence counts
+coocCounts <- t(binDTM) %*% binDTM
+as.matrix(coocCounts[202:205, 202:205])
 
-#stemming transformation was commented out as not required for this specific task
-#corp <- tm_map(corp, stemDocument)   
+# Read in the source code for the co-occurrence calculation to calculate Statistical significance -- in order to not only count joint occurrence we have to determine their significance this because only frequently co-occurring could result in poor indicator of meaning. 
 
-#checking if the transformation happened
-writeLines(head(strwrap(corp[[2]]), 200)) 
+source("calculateCoocStatistics.R")
 
-# calculate multi-word unit candidates
-corp_tm <- tm::VCorpus(tm::VectorSource(data_char_ukimmig2010))
-corp_quanteda <- corpus(corp)
+# Definition of a parameter for the representation of the co-occurrences of a concept
+numberOfCoocs <- 10
+# Determination of the term of which co-competitors are to be measured.
+coocTerm <- "woman"
 
-corp_new<- VCorpus(corp)
-df <- data.frame(text=sapply(corp, identity), 
-    stringsAsFactors=F)
+coocs <- calculateCoocStatistics(coocTerm, binDTM, measure="LOGLIK")
 
-sotu_collocations <- textstat_collocations(corp_quanteda, min_count = 25)
-sotu_collocations <- sotu_collocations[1:250, ]
-corpus_tokens <- tokens_compound(corp, sotu_collocations)
-library(quanteda)
-
-??textstat_collocations
-
-lemma_data <- read.csv("resources/baseform_en.tsv", encoding = "UTF-8")
-
-
-
-# Term-document Matrix - setting up a matrix of words
-BigramTokenizer <-
-  function(x)
-    unlist(lapply(ngrams(words(x), 1:2), paste, collapse = " "), use.names = FALSE)
+# Display the numberOfCoocs main terms
+print(coocs[1:numberOfCoocs])
 
 ```
 
+``` {r visualizing cooccurances}
+#The network graph would help with acquiring an extended semantic environment, by providing a secondary co -occurrence with the terms that co - occurred with the term "woman"
+
+#For a term co-occurrence network, each triple consists of the target word, a co-occurring word and the significance of their joint occurrence. We denote the values with from, to, sig.
+
+resultGraph <- data.frame(from = character(),
+                          to = character(),
+                          sig = numeric(0))
+
+#First, we obtain all significant co-occurrence terms for the target term. Second, we obtain all co-occurrences of the co-occurrence terms from step one.
+
+# The structure of the temporary graph object is equal to that of the resultGraph
+tmpGraph <- data.frame(from = character(),
+                       to = character(),
+                       sig = numeric(0))
+
+# Fill the data.frame to produce the correct number of lines
+tmpGraph[1:numberOfCoocs, 3] <- coocs[1:numberOfCoocs]
+
+# Entry of the search word into the first column in all lines
+tmpGraph[, 1] <- coocTerm
+
+# Entry of the co-occurrences into the second column of the respective line
+tmpGraph[, 2] <- names(coocs)[1:numberOfCoocs]
+
+# Set the significances
+tmpGraph[, 3] <- coocs[1:numberOfCoocs]
+
+# Attach the triples to resultGraph
+resultGraph <- rbind(resultGraph, tmpGraph)
+
+# Iteration over the most significant numberOfCoocs co-occurrences of the search term
+for (i in 1:numberOfCoocs) {
+
+# Calling up the co-occurrence calculation for term i from the search words co-occurrences
+  newCoocTerm <- names(coocs)[i]
+  coocs2 <- calculateCoocStatistics(newCoocTerm, binDTM, measure = "LOGLIK")
+  
+#print the co-occurrences
+  coocs2[1:10]
+  
+# Structure of the temporary graph object
+  tmpGraph <- data.frame(from = character(),
+                         to = character(),
+                         sig = numeric(0))
+  tmpGraph[1:numberOfCoocs, 3] <- coocs2[1:numberOfCoocs]
+  tmpGraph[, 1] <- newCoocTerm
+  tmpGraph[, 2] <- names(coocs2)[1:numberOfCoocs]
+  tmpGraph[, 3] <- coocs2[1:numberOfCoocs]
+  
+#Append the result to the result graph
+  resultGraph <- rbind(resultGraph, tmpGraph[2:length(tmpGraph[, 1]), ])
+}
+
+#Graphing
+
+# set seed for graph plot
+set.seed(1)
+
+# Create the graph object as undirected graph
+graphNetwork <- graph.data.frame(resultGraph, directed = F)
+
+# Identification of all nodes with less than 2 edges [co-occurring terms connected to at least 2 terms - filtering out terms cooccuring to only to one term.]
+verticesToRemove <- V(graphNetwork)[degree(graphNetwork) < 2]
+# These edges are removed from the graph
+graphNetwork <- delete.vertices(graphNetwork, verticesToRemove)
+
+# Assign colors to nodes (search term blue, others orange)
+V(graphNetwork)$color <- ifelse(V(graphNetwork)$name == coocTerm, 'cornflowerblue', 'orange')
+
+# Set edge colors
+E(graphNetwork)$color <- adjustcolor("DarkGray", alpha.f = .5)
+# scale significance between 1 and 10 for edge width
+E(graphNetwork)$width <- scales::rescale(E(graphNetwork)$sig, to = c(1, 10))
+
+# Set edges with radius
+E(graphNetwork)$curved <- 0.15
+# Size the nodes by their degree of networking (scaled between 5 and 15)
+V(graphNetwork)$size <- scales::rescale(log(degree(graphNetwork)), to = c(5, 15))
+
+# Define the frame and spacing for the plot
+par(mai = c(0, 0, 1, 0))
+
+# Final Plot
+plot(
+  graphNetwork,
+  layout = layout.fruchterman.reingold,
+  # Force Directed Layout
+  main = paste(coocTerm, ' Graph'),
+  vertex.label.family = "sans",
+  vertex.label.cex = 0.8,
+  vertex.shape = "circle",
+  vertex.label.dist = 0.5,
+  # Labels of the nodes moved slightly
+  vertex.frame.color = adjustcolor("darkgray", alpha.f = .5),
+  vertex.label.color = 'black',
+  # Color of node names
+  vertex.label.font = 2,
+  # Font of node names
+  vertex.label = V(graphNetwork)$name,
+  # node names
+  vertex.label.cex = 1 # font size of node names
+)
+
 
 ```
 
+``` {r Extracting sentences with terms of interest "Woman" and "Women"}
+
+#re-read the csv into data frame
+text <- read.csv(paste(save_dir,'text_extracts.csv', sep = "/"), header = T, sep = ";", encoding = "UTF-8")     
+
+#text to corpus
+sotu_corpus <- corpus(text$text,
+                      docnames = text$doc_id)
 
 
+# Corpus to string [NLP deals with string]
+doc<- as.String(sotu_corpus)
 
+# Annotating sentences
+sent_token_annotator <- openNLP::Maxent_Sent_Token_Annotator() 
+sent_token_annotator
+a1 <- NLP::annotate(doc, sent_token_annotator)
+a1[1:5]
+
+# converting into dataframe
+df <- as.data.frame(as.matrix(doc[a1]))
+
+#sub-setting for a pattern, parsing the text & extracting in csv file
+terms<- grepl.sub(data = df, pattern = c("women", "woman"),Var = "V1")
+
+write.csv(terms, paste(save_dir,'terms_in_extracts.csv'), fileEncoding = "UTF-8", row.names = FALSE)
+
+
+```
