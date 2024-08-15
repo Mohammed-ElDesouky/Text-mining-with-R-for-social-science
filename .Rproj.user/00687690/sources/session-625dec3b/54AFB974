@@ -1,0 +1,27 @@
+{
+    "id": "54AFB974",
+    "path": "~/GitHub/Text-mining-with-R/02_Program/Text_mining.Rmd",
+    "project_path": "02_Program/Text_mining.Rmd",
+    "type": "r_markdown",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1723471058469.0,
+    "source_on_save": false,
+    "relative_order": 1,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "last_setup_crc32": "625dec3baa10f790",
+        "cursorPosition": "272,3",
+        "scrollLine": "218"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1723760348,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1723760395822,
+    "read_only": false,
+    "read_only_alternatives": []
+}

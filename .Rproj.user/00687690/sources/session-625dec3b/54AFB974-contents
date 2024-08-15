@@ -1,0 +1,277 @@
+---
+title: "Text Mining"
+author: "Mohammed ElDesouky"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#clearing memory & setting up the markdown
+rm(list = ls())
+
+# Global options
+options(stringsAsFactors = FALSE)
+
+
+knitr::opts_chunk$set(echo = TRUE,
+	fig.height = 6,
+	fig.width = 8,
+	message = FALSE,
+	warning = FALSE
+	)
+
+
+#Calling packages (Java 64x bit was installed separately) -- imp to do the same if encountered error "error: JAVA_HOME cannot be determined from the Registry"
+library(pdftools)
+library(tm)
+library(SnowballC)
+library(kernlab)
+library(dplyr)
+library(wordcloud)
+library(openNLP)
+library(rJava)
+library(NLP)
+library(RWeka)
+library(ngram)
+library(stringr)
+library(ggplot2)
+library(reshape2)
+library(gplots)
+library(corrplot)
+library(here)
+library(quanteda)
+library(readtext)
+library(quanteda.textstats)
+
+#########################################
+# Initializing and setting up File paths #
+#########################################
+#The project_directory will be the location of where R project is located
+#The data_directory will be the location of where input/raw data is stored
+#The save_directory will be the location of where outputs are stored
+project_dir <- here()
+data_dir <- here('01_Data/letters')
+save_dir <- here('03_Outputs/')
+
+
+```
+
+```{r letters pre-processing}
+#Importing letters as pdf files
+Reports <- list.files(data_dir, pattern = "pdf", full.names=T)
+
+#Extracting texts from the pdfs & checking the length (how many document and pages)
+Reports_text <- lapply(Reports, pdf_text)
+length(Reports_text)
+lapply(Reports_text, length)
+
+# Adding texts to a virtual corpus for further manipulation [you can adjust this, for the sake of demo here, we leave unadjusted]
+corp <- VCorpus(VectorSource(Reports_text))
+lapply(corp, length) #double checking the length
+
+#Adding meta data on the corpus level and document level
+corp
+
+inspect(corp)
+
+```
+```{r data transformation}
+#Custom function to add space. will be used below to replace/strip dashes for connected words e.g. "read-friendly"
+addspace <- content_transformer(function(x, pattern) {
+  return(gsub(pattern, " ", x))
+})                            
+
+corp <- tm_map(corp, addspace, "-")
+
+#Custom function to remove special characters e.g "$"
+rmchr <- content_transformer(function(x, pattern) {
+  return(gsub(pattern, " ", x))
+})                            
+
+corp <- tm_map(corp, rmchr, "[[:punct:]]")
+
+#Remove unnecessary elements from text [Note: respect the order]
+corp <- tm_map(corp, content_transformer(tolower))
+corp <- tm_map(corp, removePunctuation, ucp = TRUE)
+corp <- tm_map(corp, removeNumbers)
+corp <- tm_map(corp, removeWords, stopwords("english"))
+corp <- tm_map(corp, stripWhitespace) #Note: tm package doesn't treat spaces as characters,it's purely cosmetic transformation.
+
+#stemming transformation was commented out as not required for this specific task
+#corp <- tm_map(corp, stemDocument)   
+
+#checking if the transformation happened
+writeLines(head(strwrap(corp[[1]]), 50))  
+
+# Term-document Matrix - setting up a matrix of words
+BigramTokenizer <-
+  function(x)
+    unlist(lapply(ngrams(words(x), 1:2), paste, collapse = " "), use.names = FALSE)
+
+```
+``` {r data frequent words}
+#For the sake of processing time and interest of this research, we are not going to count frequencies for each word in the document, but interested in looking into certain key words related to women and wealth management
+# A victor of interested words to filter on - Skip to tdm if you are not interested in filtering
+My_words <-
+  c(
+    "woman",
+    "women",
+    "female",
+    "females",
+    "wealth",
+    "entrepreneur",
+    "business",
+    "management",
+    "wealth management",
+    "hnwi",
+    "net worth",
+    "high net",
+    "Worth individuals"
+  )
+
+#TDM with bigram and specific words filtered
+Reports.tdm <-
+  TermDocumentMatrix(corp,
+                     control = list(tokenize = BigramTokenizer,
+                                    dictionary = My_words))
+
+#inspecting the results
+inspect(Reports.tdm)
+
+#opinions.tdm <- removeSparseTerms(opinions.tdm, 0.95)
+# reducing dimentionality by removving sparse
+
+
+# Transform into matrix/dataframe to be able to work with the numbers
+as.matrix(Reports.tdm)
+v <- sort(rowSums(as.matrix(Reports.tdm)), decreasing = TRUE)
+d <- data.frame(word = names(v), freq = v)
+
+#Visualtizing frequencies
+wordcloud(
+  words = d$word,
+  freq = d$freq,
+  random.order = FALSE,
+  rot.per = 0.35,
+  scale = c(7, .7),
+  min.freq  = 1,
+  max.words = 100,
+  colors = brewer.pal(8, "Dark2")
+)
+  #setting parapmeters for the axis's margins
+par(mar = c(10, 6, 4, 3) + .1)  
+barplot(
+  d[1:11,]$freq,
+  las = 2,
+  names.arg = d[1:11,]$word,
+  col = "lightblue",
+  main = "Most frequent words & corresponding frequencies",
+  ylab = "Word frequencies"
+)
+```
+
+```{r frequency per document}
+#creating another data frame that counts frequency for each document & visualize it
+TF.df<- data.frame(as.table(as.matrix(Reports.tdm)))
+  
+  TF.df$Docs <- factor(
+    TF.df$Docs,
+    levels = c(1, 2),
+    labels = c("Goldman",
+               "JPM")
+  )
+  
+  ggplot(data = TF.df, aes(x = Terms, y = Freq)) + geom_bar(stat = "identity", aes(fill =
+                                                                                     Terms)) +
+    facet_wrap(Docs ~ .) +
+    theme(
+      axis.title.x = element_blank(),
+      axis.text.x = element_blank(),
+      axis.ticks.x = element_blank()
+    ) +
+    ggtitle("Frequencies per document") +
+    theme(plot.title = element_text(hjust = 0.5))
+  
+
+```
+
+``` {r coocuurance analysis}
+#re-importing the corpus without any transforamtion as we need it for sentence detection
+extracted_texts <- readtext(Reports, docvarsfrom = "filepaths", dvsep = "/")
+
+#save as csv for othe uses if needed
+write.csv2(extracted_texts, paste(save_dir,'text_extracts.csv', sep = "/"), fileEncoding = "UTF-8")
+
+#re-read the csv into data frame
+text <- read.csv(paste(save_dir,'text_extracts.csv', sep = "/"), header = T, sep = ";", encoding = "UTF-8")     
+
+#text to corpus
+corp_raw <- corpus(text$text, docnames = text$doc_id)
+summary(corp_raw)
+
+#corpus to sentences
+corpus_sentences <- corpus_reshape(corp_raw, to = "sentences")
+ndoc(corpus_sentences)
+
+#applying transformation
+corp <- VCorpus(VectorSource(corpus_sentences))
+
+
+addspace <- content_transformer(function(x, pattern) {
+  return(gsub(pattern, " ", x))
+})                            
+
+corpus_sentences <- tm_map(corp, addspace, "-")
+
+#Custom function to remove special characters e.g "$"
+rmchr <- content_transformer(function(x, pattern) {
+  return(gsub(pattern, " ", x))
+})                            
+
+corp <- tm_map(corp, rmchr, "[[:punct:]]")
+
+#Remove unnecessary elements from text [Note: respect the order]
+corp <- tm_map(corp, content_transformer(tolower))
+corp <- tm_map(corp, removePunctuation, ucp = TRUE)
+corp <- tm_map(corp, removeNumbers)
+corp <- tm_map(corp, removeWords, stopwords("english"))
+corp <- tm_map(corp, stripWhitespace) #Note: tm package doesn't treat spaces as characters,it's purely cosmetic transformation.
+
+#stemming transformation was commented out as not required for this specific task
+#corp <- tm_map(corp, stemDocument)   
+
+#checking if the transformation happened
+writeLines(head(strwrap(corp[[2]]), 200)) 
+
+# calculate multi-word unit candidates
+corp_tm <- tm::VCorpus(tm::VectorSource(data_char_ukimmig2010))
+corp_quanteda <- corpus(corp)
+
+corp_new<- VCorpus(corp)
+df <- data.frame(text=sapply(corp, identity), 
+    stringsAsFactors=F)
+
+sotu_collocations <- textstat_collocations(corp_quanteda, min_count = 25)
+sotu_collocations <- sotu_collocations[1:250, ]
+corpus_tokens <- tokens_compound(corp, sotu_collocations)
+library(quanteda)
+
+??textstat_collocations
+
+lemma_data <- read.csv("resources/baseform_en.tsv", encoding = "UTF-8")
+
+
+
+# Term-document Matrix - setting up a matrix of words
+BigramTokenizer <-
+  function(x)
+    unlist(lapply(ngrams(words(x), 1:2), paste, collapse = " "), use.names = FALSE)
+
+```
+
+
+```
+
+
+
+

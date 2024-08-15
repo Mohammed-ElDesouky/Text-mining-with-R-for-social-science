@@ -1,0 +1,28 @@
+{
+    "id": "150127C4",
+    "path": null,
+    "project_path": null,
+    "type": "object_explorer",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1723477257955.0,
+    "source_on_save": false,
+    "relative_order": 8,
+    "properties": {
+        "id": "81cd45e711fb460fa1659bc3741ab8ec",
+        "name": "coocCounts",
+        "title": "coocCounts",
+        "language": "R",
+        "source_window_id": "",
+        "Source": "Source"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 2161213040040,
+    "encoding": "",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1723477257955,
+    "read_only": false,
+    "read_only_alternatives": []
+}

@@ -1,0 +1,5 @@
+"0","as.matrix(coocCounts[""women"", 202:205])
+"
+"2","Error in h(simpleError(msg, call)) : 
+  error in evaluating the argument 'x' in selecting a method for function 'as.matrix': invalid character indexing
+"

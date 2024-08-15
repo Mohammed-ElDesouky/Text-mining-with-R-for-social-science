@@ -1,0 +1,83 @@
+"0","#Importing letters as pdf files"
+"0","Reports <- list.files(data_dir, pattern = ""pdf"", full.names=T)"
+"0",""
+"0","#Extracting texts from the pdfs & checking the length (how many document and pages)"
+"0","Reports_text <- lapply(Reports, pdf_text)"
+"0","length(Reports_text)"
+"1","[1]"
+"1"," 2"
+"1","
+"
+"0","lapply(Reports_text, length)"
+"1","[[1]]
+"
+"1","[1]"
+"1"," 10"
+"1","
+"
+"1","
+"
+"1","[[2]]
+"
+"1","[1]"
+"1"," 75"
+"1","
+"
+"1","
+"
+"0","# Adding texts to a virtual corpus for further manipulation [you can adjust this, for the sake of demo here, we leave unadjusted]"
+"0","corp <- VCorpus(VectorSource(Reports_text))"
+"0","lapply(corp, length) #double checking the length"
+"1","$`1`
+"
+"1","[1]"
+"1"," 2"
+"1","
+"
+"1","
+"
+"1","$`2`
+"
+"1","[1]"
+"1"," 2"
+"1","
+"
+"1","
+"
+"0","#Adding meta data on the corpus level and document level"
+"0","corp"
+"1","<<VCorpus>>
+"
+"1","Metadata:  corpus specific: 0, document level (indexed): 0
+"
+"1","Content:  documents: 2
+"
+"0","inspect(corp)"
+"1","<<VCorpus>>
+"
+"1","Metadata:  corpus specific: 0, document level (indexed): 0
+"
+"1","Content:  documents: 2
+"
+"1","
+"
+"1","[[1]]
+"
+"1","<<PlainTextDocument>>
+"
+"1","Metadata:  7
+"
+"1","Content:  chars: 54189
+"
+"1","
+"
+"1","[[2]]
+"
+"1","<<PlainTextDocument>>
+"
+"1","Metadata:  7
+"
+"1","Content:  chars: 178441
+"
+"1","
+"

@@ -1,0 +1,403 @@
+#------------------------------------------------------------------------#
+
+#                 Text Mining
+
+# .....Mohammed ElDEsouky
+# .....mohammed.reda.amin@gmail.com
+# .....Created: Wednesday, January 29, 2020
+
+#------------------------------------------------------------------------#
+
+#clearing memory
+
+rm(list = ls())
+
+#Initializing and setting up directory
+
+getwd()
+setwd("C:\\Users\\m.eldesouky\\Downloads\\text mining\\TM")
+
+
+#Calling packages (Java 64x bit was installed seperately)
+
+install.packages("pdftools")
+install.packages("tm")
+update.packages("tm",  checkBuilt = TRUE)
+install.packages("SnowballC")
+install.packages("kernlab")
+install.packages("janeaustenr")
+install.packages("wordcloud")
+install.packages("openNLP")
+install.packages("rJava")
+install.packages("NLP")
+install.packages("RWeka")
+install.packages("ngram")
+install.packages("gplots")
+install.packages("corrplot")
+library(pdftools)
+library(tm)
+library(SnowballC)
+library(kernlab)
+library(dplyr)
+library(wordcloud)
+library(openNLP)
+library(rJava)
+library(NLP)
+library(RWeka)
+library(ngram)
+library(stringr)
+library(ggplot2)
+library(reshape2)
+library(gplots)
+library(corrplot)
+
+#Importing pdf files
+Reports <- list.files(pattern = "pdf$")
+
+#Extracting texts from the pdfs & checking the length (how many document and pages)
+Reports_text <- lapply(Reports, pdf_text)
+length(Reports_text)
+lapply(Reports_text, length)
+
+# Addign texts to a virtual corpus for further manupliation
+corp <- VCorpus(VectorSource(Reports_text))
+lapply(corp, length) #double checking the length
+
+#Adding meta data on the corpus level and document level
+corp
+meta(corp, tag = "From") <-
+  Reports         #can also be added as a vector
+#meta(corp, tag="from") <-
+#c("Barclays", "BNP", "CA", "CS", "Goldman", "
+#Intesa", "JBaer", "JPM", "Santander", "UBS")
+meta(corp, tag = "strings", type = "corpus") <- "Reports"
+meta(corp)
+corp
+meta(corp[[2]])
+inspect(corp)
+
+
+#Data pipline/Transformation
+
+addspace <- content_transformer(function(x, pattern) {
+  return(gsub(pattern, " ", x))
+})                                        #Custom function to add space instead of dashes
+#if removing punctuations for connected words
+#e.g. "read-friendly"
+
+corp <- tm_map(corp, addspace, "-")
+corp <-
+  tm_map(corp, removePunctuation, ucp = TRUE)  # ucp is to remove qoutation marks and to account
+#for punctuations not accounted for
+
+corp <- tm_map(corp, removeNumbers)
+corp <- tm_map(corp, removeWords, stopwords("english"))
+corp <- tm_map(corp, content_transformer(tolower))
+corp <-
+  tm_map(corp, stripWhitespace) #tm package doesn't treat spaces as characters,
+#it's purely cosmetic transformation.
+
+#corp <- tm_map(corp, stemDocument)   #stemming transformation was commented out as
+#not required for this specific task
+
+writeLines(head(strwrap(corp[[1]]), 50))  #checking if the transformation happened
+
+
+# A victor of words to filter on - Skip to tdm if you are not interested in filtering
+
+My_words <-
+  c(
+    "woman",
+    "women",
+    "wealth",
+    "entrepreneur",
+    "business",
+    "management",
+    "wealth management",
+    "hnwi",
+    "net worth",
+    "high net",
+    "Worth individuals"
+  )
+
+
+# Term-document Matrix
+
+BigramTokenizer <-
+  function(x)
+    unlist(lapply(ngrams(words(x), 1:2), paste, collapse = " "), use.names = FALSE) #1 and 2gram
+
+Reports.tdm <-
+  TermDocumentMatrix(corp,
+                     control = list(tokenize = BigramTokenizer,
+                                    dictionary = My_words))     #TDM with bigram and specific words filtered
+
+#Reports.tdm <- TermDocumentMatrix(corp,
+#control = list(dictionary = My_words))
+inspect(Reports.tdm)
+
+#opinions.tdm <- removeSparseTerms(opinions.tdm, 0.95)
+# reducing dimentionality by removving sparse
+
+
+# Transform into matrix/dataframe to be able to work with the numbers
+as.matrix(Reports.tdm)
+v <- sort(rowSums(as.matrix(Reports.tdm)), decreasing = TRUE)
+d <- data.frame(word = names(v), freq = v)
+
+#Visualtizing frequencies
+wordcloud(
+  words = d$word,
+  freq = d$freq,
+  random.order = FALSE,
+  rot.per = 0.35,
+  scale = c(7, .7),
+  min.freq  = 1,
+  max.words = 100,
+  colors = brewer.pal(8, "Dark2")
+)
+
+par(mar = c(10, 6, 4, 3) + .1)  #setting parapmeters for the axis's margins
+barplot(
+  d[1:11, ]$freq,
+  las = 2,
+  names.arg = d[1:11, ]$word,
+  col = "lightblue",
+  main = "Most frequent words & corresponding frequencies",
+  ylab = "Word frequencies"
+)
+
+#creating another data frame that counts frequency for each document & visulize it
+TF.df <- data.frame(as.table(as.matrix(Reports.tdm)))
+TF.df$Docs <- factor(
+  TF.df$Docs,
+  levels = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
+  labels = c(
+    "Barclays",
+    "BNP",
+    "CA",
+    "CS",
+    "Goldman",
+    "
+                                          #Intesa",
+    "JBaer",
+    "JPM",
+    "Santander",
+    "UBS"
+  )
+)
+
+ggplot(data = TF.df, aes(x = Terms, y = Freq)) + geom_bar(stat = "identity", aes(fill =
+                                                                                   Terms)) +
+  facet_wrap(Docs ~ .) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  ) +
+  ggtitle("Frequencies per document") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+#Co-occurrence analysis & visualization
+
+m_freq_words <-
+  t(as.matrix(Reports.tdm))  #transposing the tdm to dtm
+heatmap_data <- t(m_freq_words) %*% m_freq_words
+
+diag(heatmap_data) <- 0
+
+heatmap.2(
+  heatmap_data,
+  dendrogram = "none",
+  Colv = FALSE,
+  Rowv = FALSE,
+  scale = "none",
+  col = brewer.pal(5, "Blues"),
+  key = TRUE,
+  density.info = "none",
+  key.title = NA,
+  key.xlab = "Frequency of co-occurrence",
+  trace = "none",
+  keysize = .9,
+  key.par = list(cex = .9),
+  main = "Term co-occurrence",
+  xlab = "Term",
+  ylab = "Term",
+  lhei = c(7, 30),
+  lwid = c(5, 15),
+  margins = c(10, 15)
+)
+
+
+#Finding assosiations between keywords & visulaizing them
+
+findAssocs(dtm, c("film"), 0.05)[[1]][1:5]  #to find association for first 5 words
+library(dplyr)
+library(tibble)
+
+#converting associations into dataframes and making rownames columns
+a <- as.data.frame(findAssocs(Reports.tdm, "woman", .5))
+a <- a %>% rownames_to_column("Ref")
+b <- as.data.frame(findAssocs(Reports.tdm, "women", .5))
+b <- b %>% rownames_to_column("Ref")
+c <- as.data.frame(findAssocs(Reports.tdm, "wealth", .5))
+c <- c %>% rownames_to_column("Ref")
+d <- as.data.frame(findAssocs(Reports.tdm, "net worth", .5))
+d <- d %>% rownames_to_column("Ref")
+e <- as.data.frame(findAssocs(Reports.tdm, "wealth management", .5))
+e <- e %>% rownames_to_column("Ref")
+f <- as.data.frame(findAssocs(Reports.tdm, "high net", .5))
+f <- f %>% rownames_to_column("Ref")
+
+#Merging data frames
+new <-  merge.data.frame(c, d, all.x = T, all.y = T)
+new1 <- merge.data.frame(new, a, all.x = T, all.y = T)
+new2 <- merge.data.frame(new1, b, all.x = TRUE, all.y = T)
+new3 <- merge.data.frame(new2, e, all.x = TRUE, all.y = T)
+new4 <- merge.data.frame(new3, f, all.x = T, all.y = T)
+
+#transposing and cleaning the new dataframe
+assoc <- as.data.frame(t(new4))
+colnames(assoc) <-
+  c(
+    "business",
+    "entrepreneur",
+    "high net",
+    "management",
+    "net worth",
+    "wealth",
+    "wealth managemen",
+    "woman",
+    "women"
+  )
+assoc <- assoc[-1, ]
+
+#Making a matrix, cleaning, and changing characters into numeric
+mat <- as.matrix(assoc)
+class(mat) <- "numeric"
+mat[!is.finite(mat)] <- 0
+
+#Visualizing correlations and tweaking the vis
+corrplot(mat,
+         method = "square",
+         title = "Word associations/correlations",
+         mar = c(0, 0, 6, 3))
+
+
+#extracting sentences that has the words "woman", "women"
+
+require("NLP")
+require("rJava")
+#extracting row texts and converting them into character as NPL handels characters
+Reports_char <- as.String(Reports_text)
+f <- as.String(Reports_text)
+df <- as.matrix(f)
+l <- as.array(f)
+m <- toString(Reports_text)
+#managing and extracting texts that has pattern "woman" and ""women
+sent_token_annotator <- Maxent_Sent_Token_Annotator()
+sent_token_annotator
+a1 <- annotate(f, sent_token_annotator)
+a1
+as.matrix(Reports_char[a1])
+df <- as.data.frame(df)
+
+grepl.sub(data = df,
+          pattern = c("women", "woman"),
+          Var = "Reports_char[a1]")
+
+colnames(df) <- "chr"
+
+str(df)
+df$chr <- as.character(df$chr)
+
+subset(df, select = grepl("women", names(df)))
+
+subset <-
+  subset(df, str_detect(
+    df$chr,
+    pattern = c("woman", "women"),
+    negate = FALSE
+  ))
+
+
+#Most freq words - word cloud
+FT <- sort(findFreqTerms(Reports.tdm), decreasing = TRUE)
+
+as.matrix(Reports.tdm[FT, ])  #adding how many times they show in each document
+ft.tdm <- as.matrix(Reports.tdm[FT, ])
+as.table(sort(apply(ft.tdm, 1, sum), decreasing = TRUE))
+
+data.frame(ft.tdm)
+
+FT <- sort(findFreqTerms(opinions.tdm,
+                         lowfreq = 1000,
+                         highfreq = Inf),
+           decreasing = TRUE)  #most freq words (1000 and more) and sorting them - word cloud
+
+as.matrix(opinions.tdm[FT, ])  #adding how many times they show in each document
+
+ft.tdm <- as.matrix(opinions.tdm[FT, ])
+sort(apply(ft.tdm, 1, sum), decreasing = TRUE)
+
+
+findAssocs(opinions.tdm, "woman", .95)
+findAssocs(opinions.tdm, "women", 0.90)
+findAssocs(opinions.tdm, "wealth", 0.90)
+
+install.packages("RWeka")
+library(RWeka)
+
+BigramTokenizer <-
+  function(x)
+    NGramTokenizer(x, Weka_control(min = 2, max = 2))
+
+tdm <-
+  TermDocumentMatrix(corp, control = list(tokenize = BigramTokenizer))
+
+
+#TfIdf
+
+corp <- VCorpus(VectorSource(Reports_text))
+
+(f <- content_transformer(function(x, pattern)
+  regmatches(
+    x, gregexpr(pattern, x, perl = TRUE, ignore.case = TRUE)
+  )))
+
+
+keep = "woman|women|wealth|HNWI"
+
+corp_2 <- tm_map(corp, f, keep)[[1]]
+
+inspect(corp_2)
+corp
+
+opinions.tdm <- TermDocumentMatrix(corp_2)
+
+#opinions.tdm <- removeSparseTerms(opinions.tdm, 0.95) # reducing dimentionality by removing sparse
+
+inspect(opinions.tdm[1:10, ])
+
+FT <- sort(findFreqTerms(opinions.tdm,
+                         lowfreq = 1000,
+                         highfreq = Inf),
+           decreasing = TRUE)  #most freq words (1000 and more) and sorting them - word cloud
+
+as.matrix(opinions.tdm[FT, ])  #adding how many times they show in each document
+
+ft.tdm <- as.matrix(opinions.tdm[FT, ])
+sort(apply(ft.tdm, 1, sum), decreasing = TRUE)
+
+
+findAssocs(opinions.tdm, "woman", .95)
+findAssocs(opinions.tdm, "women", 0.90)
+findAssocs(opinions.tdm, "wealth", 0.90)
+
+findAssocs(tdm, c("oil", "opec", "xyz"), c(0.7, 0.75, 0.1))
+
+#Saving and quitting
+
+rstudioapi::documentSave("Text_mining script.R", id = NULL)
+rm(list = ls())
