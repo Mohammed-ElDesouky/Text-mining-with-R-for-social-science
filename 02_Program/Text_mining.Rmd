@@ -27,10 +27,12 @@ library(tm)
 library(SnowballC)
 library(kernlab)
 library(dplyr)
+library(tidyr)
 library(wordcloud)
 library(openNLP)
 library(rJava)
 library(NLP)
+library(openNLP)
 library(RWeka)
 library(ngram)
 library(stringr)
@@ -43,6 +45,8 @@ library(quanteda)
 library(readtext)
 library(quanteda.textstats)
 library(igraph)
+library(DataCombine)
+
 
 #########################################
 # Initializing and setting up File paths #
@@ -368,6 +372,36 @@ plot(
   # node names
   vertex.label.cex = 1 # font size of node names
 )
+
+
+```
+
+``` {r Extracting sentences with terms of interest "Woman" and "Women"}
+
+#re-read the csv into data frame
+text <- read.csv(paste(save_dir,'text_extracts.csv', sep = "/"), header = T, sep = ";", encoding = "UTF-8")     
+
+#text to corpus
+sotu_corpus <- corpus(text$text,
+                      docnames = text$doc_id)
+
+
+# Corpus to string [NLP deals with string]
+doc<- as.String(sotu_corpus)
+
+# Annotating sentences
+sent_token_annotator <- openNLP::Maxent_Sent_Token_Annotator() 
+sent_token_annotator
+a1 <- NLP::annotate(doc, sent_token_annotator)
+a1[1:5]
+
+# converting into dataframe
+df <- as.data.frame(as.matrix(doc[a1]))
+
+#sub-setting for a pattern, parsing the text & extracting in csv file
+terms<- grepl.sub(data = df, pattern = c("women", "woman"),Var = "V1")
+
+write.csv(terms, paste(save_dir,'terms_in_extracts.csv'), fileEncoding = "UTF-8", row.names = FALSE)
 
 
 ```
