@@ -1,8 +1,0 @@
-"0","barplot("
-"0","  d[1:11,]$freq,"
-"0","  las = 2,"
-"0","  names.arg = d[1:11,]$word,"
-"0","  col = ""lightblue"","
-"0","  main = ""Most frequent words & corresponding frequencies"","
-"0","  ylab = ""Word frequencies"""
-"0",")"

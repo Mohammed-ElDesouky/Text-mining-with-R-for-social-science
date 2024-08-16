@@ -1,6 +1,0 @@
-"0","terms<- grepl.sub(data = df, pattern = c(""women"", ""woman""),Var = ""V1"")
-
-terms_export <- as.data.frame(gsub([^[:alnum:] ], ' ', terms$V1))
-"
-"2","Error: unexpected '[' in ""terms_export <- as.data.frame(gsub([""
-"

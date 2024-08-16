@@ -29,6 +29,7 @@ library(kernlab)
 library(dplyr)
 library(tidyr)
 library(wordcloud)
+library(wordcloud2)
 library(openNLP)
 library(rJava)
 library(NLP)
@@ -46,6 +47,7 @@ library(readtext)
 library(quanteda.textstats)
 library(igraph)
 library(DataCombine)
+library(topicmodels)
 
 
 #########################################
@@ -120,19 +122,14 @@ BigramTokenizer <-
 # A victor of interested words to filter on - Skip to tdm if you are not interested in filtering
 My_words <-
   c(
-    "woman",
     "women",
     "female",
-    "females",
     "wealth",
     "entrepreneur",
     "business",
     "management",
     "wealth management",
-    "hnwi",
-    "net worth",
-    "high net",
-    "Worth individuals"
+    "net worth"
   )
 
 #TDM with bigram and specific words filtered
@@ -182,10 +179,14 @@ TF.df<- data.frame(as.table(as.matrix(Reports.tdm)))
   
   TF.df$Docs <- factor(
     TF.df$Docs,
-    levels = c(1, 2),
-    labels = c("Goldman",
-               "JPM")
-  )
+    levels = c(1, 2, 3, 4, 5, 6),
+    labels = c("BanksofAmerica",
+               "Citigroup",
+               "Goldmansachs",
+               "JPM",
+               "MS",
+               "Prudential")
+    )
   
   ggplot(data = TF.df, aes(x = Terms, y = Freq)) + geom_bar(stat = "identity", aes(fill =
                                                                                      Terms)) +
@@ -201,8 +202,8 @@ TF.df<- data.frame(as.table(as.matrix(Reports.tdm)))
 
 ```
 
-``` {r coocuurance analysis}
-# here we will follow a different text processing pipeline to implement the method discussed by: Andreas Niekler, Gregor Wiedemann -- The sequence and logic of processing remains constant across prvious and this method, however, the syntax will differ slightly. 
+```{r topic models: identification using ML model}
+# here we will follow a different text processing pipeline to implement the method discussed by: Andreas Niekler, Gregor Wiedemann -- The sequence and logic of processing remains constant across previous and this method, however, the syntax will differ slightly. source: https://tm4ss.github.io/docs/Tutorial_6_Topic_Models.html
 
 #re-importing the corpus without any transformation as we need it for sentence detection
 extracted_texts <- readtext(Reports, docvarsfrom = "filepaths", dvsep = "/")
@@ -210,12 +211,121 @@ extracted_texts <- readtext(Reports, docvarsfrom = "filepaths", dvsep = "/")
 #save as csv for othe uses if needed
 write.csv2(extracted_texts, paste(save_dir,'text_extracts.csv', sep = "/"), fileEncoding = "UTF-8")
 
-#re-read the csv into data frame
-text <- read.csv(paste(save_dir,'text_extracts.csv', sep = "/"), header = T, sep = ";", encoding = "UTF-8")     
+#text to corpus
+sotu_corpus <- corpus(extracted_texts$text,
+                      docnames = extracted_texts$doc_id)
+
+#corpus to sentences
+corpus_sentences <- corpus_reshape(sotu_corpus, to = "sentences")
+
+#applying transformation
+
+# Build a dictionary of lemmas
+lemma_data <- read.csv(paste(resources_dir,'baseform_en.tsv', sep = "/"), encoding = "UTF-8")
+
+# read an extended stop word list
+stopwords_extended <- readLines(paste(resources_dir,'stopwords_en.txt', sep = "/"), encoding = "UTF-8")
+
+# Preprocessing of the corpus of sentences
+corpus_tokens <- corpus_sentences %>%
+  tokens(
+    remove_punct = TRUE,
+    remove_numbers = TRUE,
+    remove_symbols = TRUE
+  ) %>%
+  tokens_tolower() %>%
+  tokens_replace(lemma_data$inflected_form, lemma_data$lemma, valuetype = "fixed") %>%
+  tokens_remove(pattern = stopwords_extended, padding = T)
+
+sotu_collocations <- textstat_collocations(corpus_tokens, min_count = 25)
+sotu_collocations <- sotu_collocations[1:250, ]
+
+corpus_tokens <- tokens_compound(corpus_tokens, sotu_collocations)
+
+# Create DTM, but remove terms which occur in less than 1% of all documents
+DTM <- corpus_tokens %>% 
+  tokens_remove("") %>%
+  dfm() %>% 
+  dfm_trim(min_docfreq = 0.01, max_docfreq = 1, docfreq_type = "prop")
+
+# have a look at the number of documents and terms in the matrix
+dim(DTM)
+
+#trimming most common words fro improving accuracy -- they can be domain-relevant
+top10_terms <- c( "unite_state", "past_year", "year_ago", "year_end", "government", "state", "country", "year", "make", "seek")
+
+DTM <- DTM[, !(colnames(DTM) %in% top10_terms)]
+
+# due to vocabulary pruning, we have empty rows in our DTM
+# LDA does not like this. So we remove those docs from the
+# DTM and the metadata
+sel_idx <- rowSums(DTM) > 0
+DTM <- DTM[sel_idx, ]
+
+# number of topics -- arbitrary 
+K <- 20
+
+# compute the LDA model, inference via n iterations of Gibbs sampling
+topicModel <- LDA(DTM, K, method="Gibbs", control=list(iter = 500, seed = 1, verbose = 25))
+
+# have a look a some of the results (posterior distributions)
+tmResult <- posterior(topicModel)
+
+#take a look at the 10 most likely terms within the term probabilities
+terms(topicModel, 10)
+
+#Giving the topics more descriptive names than just numbers.
+# concatenate the five most likely terms of each topic to a string that represents a pseudo-name for each topic
+top5termsPerTopic <- terms(topicModel, 5)
+topicNames <- apply(top5termsPerTopic, 2, paste, collapse=" ")
+topicNames
+
+# visualization and reporting [wordcloud]
+# change for your own topic of interest
+#topicToViz <- 1
+
+# Or select a topic by a term contained in  its name
+topicToViz <- grep('change', topicNames)[1] 
+
+# select to 40 most probable terms from the topic by sorting the term-topic-probability vector in decreasing order
+top40terms <- sort(tmResult$terms[topicToViz,], decreasing=TRUE)[1:40]
+words <- names(top40terms)
+# extract the probabilites of each of the 40 terms
+probabilities <- sort(tmResult$terms[topicToViz,], decreasing=TRUE)[1:40]
+# visualize the terms as wordcloud
+wordcloud2(data.frame(words, probabilities), shuffle = FALSE, size = 0.8)
+
+
+# visualization and reporting [topic ranking per document]
+exampleIds <- c(1, 2, 3, 4, 5, 6)
+N <- length(exampleIds)
+
+# get topic proportions form example documents
+# for every document we have a probability distribution of its contained topics
+theta <- tmResult$topics 
+topicProportionExamples <- theta[exampleIds,]
+colnames(topicProportionExamples) <- topicNames 
+vizDataFrame <- melt(cbind(data.frame(topicProportionExamples), document = factor(1:N)), variable.name = "topic", id.vars = "document")  
+
+
+ggplot(data = vizDataFrame, aes(topic, value, fill = document), ylab = "proportion") + 
+  geom_bar(stat="identity") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +  
+  coord_flip() +
+  facet_wrap(~ document, ncol = N)
+
+```
+
+
+``` {r coocuurance analysis}
+# here we will follow a different text processing pipeline to implement the method discussed by: Andreas Niekler, Gregor Wiedemann -- The sequence and logic of processing remains constant across previous and this method, however, the syntax will differ slightly. Source: https://tm4ss.github.io/docs/Tutorial_5_Co-occurrence.html
+
+#re-importing the corpus without any transformation as we need it for sentence detection
+extracted_texts <- readtext(Reports, docvarsfrom = "filepaths", dvsep = "/")
 
 #text to corpus
-sotu_corpus <- corpus(text$text,
-                      docnames = text$doc_id)
+sotu_corpus <- corpus(extracted_texts$text,
+                      docnames = extracted_texts$doc_id)
 
 #corpus to sentences
 corpus_sentences <- corpus_reshape(sotu_corpus, to = "sentences")
@@ -379,11 +489,12 @@ plot(
 ``` {r Extracting sentences with terms of interest "Woman" and "Women"}
 
 #re-read the csv into data frame
-text <- read.csv(paste(save_dir,'text_extracts.csv', sep = "/"), header = T, sep = ";", encoding = "UTF-8")     
+#re-importing the corpus without any transformation as we need it for sentence detection
+extracted_texts <- readtext(Reports, docvarsfrom = "filepaths", dvsep = "/")
 
 #text to corpus
-sotu_corpus <- corpus(text$text,
-                      docnames = text$doc_id)
+sotu_corpus <- corpus(extracted_texts$text,
+                      docnames = extracted_texts$doc_id)
 
 
 # Corpus to string [NLP deals with string]
