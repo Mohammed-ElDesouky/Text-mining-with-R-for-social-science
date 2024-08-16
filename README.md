@@ -1,7 +1,7 @@
 # Text-mining-with-R-for-social-science
 Carrying out text analytics using R programming and RStudio projects [dedicated primailry to Social Scientits]
 
-## Please note that this program is not a panacea for all research interest, nor an exhustive compination of text analytics techniques, however, it shall suffice to give anyone a push beyond just a "Start" with text analytics. 
+### Please note that this program is not a panacea for all research interest, nor an exhustive compination of text analytics techniques, however, it shall suffice to give anyone a push beyond just a "Start" with text analytics. 
 
 ## pre-requisits for correct implementation 
 
