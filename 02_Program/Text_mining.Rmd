@@ -401,6 +401,8 @@ df <- as.data.frame(as.matrix(doc[a1]))
 #sub-setting for a pattern, parsing the text & extracting in csv file
 terms<- grepl.sub(data = df, pattern = c("women", "woman"),Var = "V1")
 
+print(terms)
+
 write.csv(terms, paste(save_dir,'terms_in_extracts.csv'), fileEncoding = "UTF-8", row.names = FALSE)
 
 
